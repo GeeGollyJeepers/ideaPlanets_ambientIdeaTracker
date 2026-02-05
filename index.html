@@ -544,6 +544,11 @@
                         <option value="10">10 - Constant presence</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label for="planetInterval">Off-screen Interval (1-60 seconds)</label>
+                    <input type="number" id="planetInterval" min="1" max="60" step="0.1" placeholder="Auto" value="">
+                    <small style="color: rgba(255,255,255,0.5); font-size: 11px; margin-top: 4px; display: block;">Leave blank for automatic based on urgency</small>
+                </div>
                 <div class="button-group">
                     <button type="button" class="btn btn-secondary" id="cancelBtn">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="submitBtn">Create Planet</button>
@@ -684,11 +689,12 @@
         }
 
         // ==================== PLANET MANAGEMENT ====================
-        function createPlanet(name, importance, urgency) {
+        function createPlanet(name, importance, urgency, customInterval = null) {
             const id = Date.now() + Math.random();
             const color = generatePlanetColor();
             const size = mapImportanceToSize(importance);
             const speed = mapUrgencyToSpeed(urgency);
+            const interval = customInterval !== null ? customInterval : calculateDefaultInterval(urgency, speed);
             const orbitPath = generateOrbitPath();
             
             const planet = {
@@ -696,6 +702,7 @@
                 name,
                 importance: parseInt(importance),
                 urgency: parseInt(urgency),
+                interval: parseFloat(interval),
                 color,
                 size,
                 speed,
@@ -714,6 +721,17 @@
             return planet;
         }
 
+        function calculateDefaultInterval(urgency, speed) {
+            // Simple stepped intervals based on urgency
+            // High urgency (9-10) = short interval (1s) - frequent reminders
+            // Low urgency (1-2) = long interval (5s) - less frequent
+            if (urgency >= 9) return 1;
+            if (urgency >= 7) return 2;
+            if (urgency >= 5) return 3;
+            if (urgency >= 3) return 4;
+            return 5; // urgency 1-2
+        }
+
         function deletePlanet(id) {
             planets = planets.filter(p => p.id !== id);
             if (activePlanetInfo && activePlanetInfo.id === id) {
@@ -726,16 +744,39 @@
             updatePlanetList();
         }
 
-        function updatePlanet(id, name, importance, urgency) {
+        function updatePlanet(id, name, importance, urgency, customInterval = null) {
+            console.log('updatePlanet called with:', { id, name, importance, urgency, customInterval });
             const planet = planets.find(p => p.id === id);
             if (planet) {
+                console.log('Planet before update:', { 
+                    name: planet.name, 
+                    importance: planet.importance, 
+                    urgency: planet.urgency,
+                    size: planet.size,
+                    speed: planet.speed,
+                    interval: planet.interval
+                });
+                
                 planet.name = name;
                 planet.importance = parseInt(importance);
                 planet.urgency = parseInt(urgency);
                 planet.size = mapImportanceToSize(importance);
                 planet.speed = mapUrgencyToSpeed(urgency);
+                planet.interval = customInterval !== null ? parseFloat(customInterval) : calculateDefaultInterval(urgency, planet.speed);
+                
+                console.log('Planet after update:', { 
+                    name: planet.name, 
+                    importance: planet.importance, 
+                    urgency: planet.urgency,
+                    size: planet.size,
+                    speed: planet.speed,
+                    interval: planet.interval
+                });
+                
                 saveToLocalStorage();
                 updatePlanetList();
+            } else {
+                console.error('Planet not found with id:', id);
             }
         }
 
@@ -784,7 +825,7 @@
         }
 
         // ==================== PLANET PHYSICS ====================
-        function updatePlanet(planet, deltaTime) {
+        function updatePlanetPhysics(planet, deltaTime) {
             if (planet.waitTime > 0) {
                 planet.waitTime -= deltaTime;
                 return;
@@ -801,13 +842,13 @@
                 if (planet.phase === 'foreground') {
                     planet.phase = 'background';
                     planet.direction *= -1;
-                    // Wait time between foreground and background
-                    planet.waitTime = (planet.speed * 0.3) * 1000; // 30% of cross time in ms
+                    // Wait time between foreground and background using custom interval
+                    planet.waitTime = planet.interval * 1000; // Convert seconds to ms
                 } else {
                     planet.phase = 'foreground';
                     planet.direction *= -1;
-                    // Wait time between background and foreground
-                    planet.waitTime = (planet.speed * 0.3) * 1000;
+                    // Wait time between background and foreground using custom interval
+                    planet.waitTime = planet.interval * 1000;
                 }
                 planet.progress = 0;
             }
@@ -871,7 +912,7 @@
             drawSpace();
             
             // Update and sort planets by layer
-            planets.forEach(planet => updatePlanet(planet, deltaTime));
+            planets.forEach(planet => updatePlanetPhysics(planet, deltaTime));
             
             const backgroundPlanets = planets.filter(p => p.phase === 'background');
             const foregroundPlanets = planets.filter(p => p.phase === 'foreground');
@@ -914,6 +955,38 @@
             
             // Apply opacity for background
             ctx.globalAlpha = pos.opacity;
+            
+            // Check if this is a background planet and if any foreground planets are casting shadows on it
+            if (planet.phase === 'background') {
+                const foregroundPlanets = planets.filter(p => p.phase === 'foreground');
+                foregroundPlanets.forEach(fgPlanet => {
+                    const fgPos = getPlanetPosition(fgPlanet);
+                    const distance = Math.sqrt((fgPos.x - pos.x) ** 2 + (fgPos.y - pos.y) ** 2);
+                    
+                    // If foreground planet is close enough to cast a shadow
+                    if (distance < fgPos.size / 2 + pos.size / 2 + 40) {
+                        // Calculate shadow offset based on relative position
+                        const angle = Math.atan2(pos.y - fgPos.y, pos.x - fgPos.x);
+                        const shadowDistance = 8; // How far the shadow is offset
+                        const shadowX = pos.x + Math.cos(angle) * shadowDistance;
+                        const shadowY = pos.y + Math.sin(angle) * shadowDistance;
+                        
+                        // Draw shadow
+                        const shadowGradient = ctx.createRadialGradient(
+                            shadowX, shadowY, 0,
+                            shadowX, shadowY, pos.size / 2 + 10
+                        );
+                        shadowGradient.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
+                        shadowGradient.addColorStop(0.7, 'rgba(0, 0, 0, 0.2)');
+                        shadowGradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                        
+                        ctx.fillStyle = shadowGradient;
+                        ctx.beginPath();
+                        ctx.arc(shadowX, shadowY, pos.size / 2 + 10, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                });
+            }
             
             // Glow effect on hover
             if (planet.hovering && planet.phase === 'foreground') {
@@ -1009,7 +1082,8 @@
             ctx.font = '12px sans-serif';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
             ctx.fillText(`Importance: ${planet.importance}`, panelX + 15, panelY + 45);
-            ctx.fillText(`Urgency: ${planet.urgency}`, panelX + 125, panelY + 45);
+            ctx.fillText(`Urgency: ${planet.urgency}`, panelX + 15, panelY + 65);
+            ctx.fillText(`Interval: ${planet.interval ? planet.interval.toFixed(1) + 's' : 'Auto'}`, panelX + 125, panelY + 65);
             
             // Draw buttons
             const btnY = panelY + panelHeight - 40;
@@ -1183,11 +1257,15 @@
             document.getElementById('planetName').value = planet.name;
             document.getElementById('planetImportance').value = planet.importance;
             document.getElementById('planetUrgency').value = planet.urgency;
+            document.getElementById('planetInterval').value = planet.interval || '';
             document.getElementById('modal').classList.add('show');
             
             // Open side panel and highlight
             selectedPlanetId = planetId;
             document.getElementById('sidePanel').classList.add('open');
+            const toggle = document.getElementById('sidePanelToggle');
+            toggle.classList.add('panel-open');
+            toggle.textContent = '✕';
             updatePlanetList();
         }
 
@@ -1206,8 +1284,10 @@
             const name = document.getElementById('planetName').value.trim();
             const importance = document.getElementById('planetImportance').value;
             const urgency = document.getElementById('planetUrgency').value;
+            const intervalInput = document.getElementById('planetInterval').value.trim();
+            const customInterval = intervalInput ? parseFloat(intervalInput) : null;
             
-            console.log('Form values:', { name, importance, urgency });
+            console.log('Form values:', { name, importance, urgency, customInterval });
             
             if (!name) {
                 alert('Please enter an idea name');
@@ -1224,10 +1304,10 @@
             
             if (editingPlanetId) {
                 console.log('Updating planet:', editingPlanetId);
-                updatePlanet(editingPlanetId, name, importance, urgency);
+                updatePlanet(editingPlanetId, name, importance, urgency, customInterval);
             } else {
                 console.log('Creating new planet...');
-                const newPlanet = createPlanet(name, importance, urgency);
+                const newPlanet = createPlanet(name, importance, urgency, customInterval);
                 console.log('Planet created:', newPlanet);
             }
             
@@ -1280,6 +1360,10 @@
                             <span class="planet-item-stat-label">Urgency</span>
                             <span class="planet-item-stat-value">${planet.urgency}</span>
                         </div>
+                        <div class="planet-item-stat">
+                            <span class="planet-item-stat-label">Interval</span>
+                            <span class="planet-item-stat-value">${planet.interval ? planet.interval.toFixed(1) + 's' : 'Auto'}</span>
+                        </div>
                     </div>
                     <button class="delete-btn" data-id="${planet.id}">Delete</button>
                 `;
@@ -1314,6 +1398,7 @@
                     name: p.name,
                     importance: p.importance,
                     urgency: p.urgency,
+                    interval: p.interval,
                     color: p.color,
                     orbitPath: p.orbitPath
                 }))
@@ -1327,10 +1412,13 @@
                 try {
                     const data = JSON.parse(stored);
                     planets = data.planets.map(p => {
+                        const speed = mapUrgencyToSpeed(p.urgency);
+                        const interval = p.interval !== undefined ? p.interval : calculateDefaultInterval(p.urgency, speed);
                         const planet = {
                             ...p,
                             size: mapImportanceToSize(p.importance),
-                            speed: mapUrgencyToSpeed(p.urgency),
+                            speed: speed,
+                            interval: interval,
                             phase: 'foreground',
                             direction: 1,
                             progress: Math.random(), // Random start position
@@ -1353,6 +1441,7 @@
                     name: p.name,
                     importance: p.importance,
                     urgency: p.urgency,
+                    interval: p.interval,
                     color: p.color,
                     orbitPath: p.orbitPath
                 })),
@@ -1380,16 +1469,21 @@
                 reader.onload = (event) => {
                     try {
                         const data = JSON.parse(event.target.result);
-                        planets = data.planets.map(p => ({
-                            ...p,
-                            size: mapImportanceToSize(p.importance),
-                            speed: mapUrgencyToSpeed(p.urgency),
-                            phase: 'foreground',
-                            direction: 1,
-                            progress: Math.random(),
-                            waitTime: 0,
-                            hovering: false
-                        }));
+                        planets = data.planets.map(p => {
+                            const speed = mapUrgencyToSpeed(p.urgency);
+                            const interval = p.interval !== undefined ? p.interval : calculateDefaultInterval(p.urgency, speed);
+                            return {
+                                ...p,
+                                size: mapImportanceToSize(p.importance),
+                                speed: speed,
+                                interval: interval,
+                                phase: 'foreground',
+                                direction: 1,
+                                progress: Math.random(),
+                                waitTime: 0,
+                                hovering: false
+                            };
+                        });
                         saveToLocalStorage();
                         updatePlanetList();
                         alert('Profile loaded successfully!');
