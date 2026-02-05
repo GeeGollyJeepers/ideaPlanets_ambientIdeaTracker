@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Planet Ideas v2.1 - Ambient Idea Tracker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Planet Ideas v2.2 - Smart Screen Fit</title>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
@@ -16,13 +17,17 @@
             overflow: hidden;
             background: #000;
             color: #fff;
+            /* Use dynamic viewport height for better mobile support */
+            height: 100dvh;
+            width: 100vw;
         }
 
         #canvas {
             display: block;
-            width: 100vw;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
             cursor: default;
+            touch-action: none; /* Prevent scrolling on mobile while touching canvas */
         }
 
         /* Floating Action Button */
@@ -58,7 +63,8 @@
             right: -350px;
             top: 0;
             width: 350px;
-            height: 100vh;
+            max-width: 85vw; /* Prevent panel from being wider than screen on mobile */
+            height: 100dvh;
             background: rgba(20, 20, 30, 0.95);
             backdrop-filter: blur(10px);
             border-left: 1px solid rgba(255, 255, 255, 0.1);
@@ -96,6 +102,13 @@
 
         #sidePanelToggle.panel-open {
             right: 350px;
+        }
+        
+        /* Mobile adjustment for toggle button when panel is open */
+        @media (max-width: 450px) {
+            #sidePanelToggle.panel-open {
+                right: 85vw; 
+            }
         }
 
         .panel-header {
@@ -198,7 +211,7 @@
             top: 0;
             left: 0;
             width: 100vw;
-            height: 100vh;
+            height: 100dvh;
             background: rgba(0, 0, 0, 0.8);
             display: none;
             justify-content: center;
@@ -420,7 +433,7 @@
             top: 0;
             left: 0;
             width: 100vw;
-            height: 100vh;
+            height: 100dvh;
             background: rgba(0, 0, 0, 0.7);
             display: none;
             justify-content: center;
@@ -571,15 +584,16 @@
     <script>
         // ==================== CONFIGURATION ====================
         const CONFIG = {
-            MIN_SIZE: 30,
-            MAX_SIZE: 400,
-            MIN_SPEED: 1, // Speed for urgency 10 (slowest, 60 seconds)
-            MAX_SPEED: 60, // Speed for urgency 1 (fastest, 1 second)
+            // These sizes are now relative base values, not absolute pixels
+            MIN_SIZE_BASE: 0.03, // 3% of screen min dimension
+            MAX_SIZE_BASE: 0.25, // 25% of screen min dimension
+            MIN_SPEED: 1, 
+            MAX_SPEED: 60, 
             BACKGROUND_SCALE: 0.7,
             BACKGROUND_OPACITY: 0.6,
             BACKGROUND_SPEED_MULTIPLIER: 0.7,
-            STAR_COUNT: 200,
-            GLOW_RADIUS: 20
+            STAR_COUNT_DENSITY: 0.00015, // Stars per pixel area
+            GLOW_RADIUS_PCT: 0.02 // Glow as % of screen
         };
 
         // ==================== STATE ====================
@@ -590,6 +604,13 @@
         let activePlanetInfo = null;
         let editingPlanetId = null;
         let confirmCallback = null;
+        
+        // Responsive State
+        let screenMinDim = 0; // The smaller of width/height
+        let scaleFactor = 1;  // Logical scale factor
+        let pixelRatio = 1;   // Device pixel ratio
+        let logicalWidth = 0;
+        let logicalHeight = 0;
 
         // ==================== CONFIRMATION DIALOG ====================
         function showConfirmDialog(message, onConfirm) {
@@ -619,29 +640,33 @@
             canvas = document.getElementById('canvas');
             ctx = canvas.getContext('2d');
             
+            // Initial resize
             resizeCanvas();
-            window.addEventListener('resize', resizeCanvas);
             
-            generateStars();
+            // Smart resize handling
+            window.addEventListener('resize', () => {
+                requestAnimationFrame(resizeCanvas);
+            });
+            
+            // Orientation change specific handler for mobile
+            window.addEventListener('orientationchange', () => {
+                setTimeout(resizeCanvas, 100); // Small delay to allow layout to settle
+            });
+            
             loadFromLocalStorage();
             
             // Event listeners
             document.getElementById('addButton').addEventListener('click', openAddModal);
             document.getElementById('cancelBtn').addEventListener('click', closeModal);
             
-            // Form submission - use both methods to be safe
+            // Form submission
             const form = document.getElementById('planetForm');
             form.addEventListener('submit', handleFormSubmit);
-            
-            // Also add direct handler on submit button as backup
             document.getElementById('submitBtn').addEventListener('click', (e) => {
-                console.log('Submit button clicked directly');
-                // Check if this is a form submission or direct click
                 const form = document.getElementById('planetForm');
                 if (form.checkValidity()) {
                     handleFormSubmit(e);
                 } else {
-                    // Let HTML5 validation run
                     form.reportValidity();
                 }
             });
@@ -651,6 +676,10 @@
             document.getElementById('loadProfileBtn').addEventListener('click', loadProfile);
             canvas.addEventListener('click', handleCanvasClick);
             canvas.addEventListener('mousemove', handleCanvasHover);
+            
+            // Touch events for mobile interaction
+            canvas.addEventListener('touchstart', handleTouchStart, {passive: false});
+            
             document.getElementById('modal').addEventListener('click', (e) => {
                 if (e.target.id === 'modal') closeModal();
             });
@@ -664,24 +693,43 @@
             // Start animation
             animate();
             
-            console.log('%c=== Planet Ideas v2.1 Initialized ===', 'color: #667eea; font-size: 16px; font-weight: bold;');
-            console.log('Current planet count:', planets.length);
-            console.log('Canvas size:', canvas.width, 'x', canvas.height);
-            console.log('Form element found:', !!document.getElementById('planetForm'));
+            console.log('%c=== Planet Ideas v2.2 Smart-Fit Initialized ===', 'color: #667eea; font-size: 16px; font-weight: bold;');
         }
 
         function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            // High DPI Display Support
+            pixelRatio = window.devicePixelRatio || 1;
+            logicalWidth = window.innerWidth;
+            logicalHeight = window.innerHeight;
+            
+            // Set physical canvas size
+            canvas.width = logicalWidth * pixelRatio;
+            canvas.height = logicalHeight * pixelRatio;
+            
+            // Ensure CSS matches logical size
+            canvas.style.width = logicalWidth + 'px';
+            canvas.style.height = logicalHeight + 'px';
+            
+            // Scale context for high DPI
+            ctx.scale(pixelRatio, pixelRatio);
+            
+            // Calculate layout metrics
+            screenMinDim = Math.min(logicalWidth, logicalHeight);
+            
+            // Regenerate stars to fit new screen area
+            generateStars();
         }
 
         function generateStars() {
             stars = [];
-            for (let i = 0; i < CONFIG.STAR_COUNT; i++) {
+            const area = logicalWidth * logicalHeight;
+            const count = Math.floor(area * CONFIG.STAR_COUNT_DENSITY);
+            
+            for (let i = 0; i < count; i++) {
                 stars.push({
-                    x: Math.random() * canvas.width,
-                    y: Math.random() * canvas.height,
-                    size: Math.random() * 1.5 + 0.5,
+                    x: Math.random() * logicalWidth,
+                    y: Math.random() * logicalHeight,
+                    size: (Math.random() * 1.5 + 0.5), // Star size doesn't need scaling usually
                     twinkle: Math.random() * Math.PI * 2,
                     twinkleSpeed: Math.random() * 0.02 + 0.01
                 });
@@ -692,7 +740,7 @@
         function createPlanet(name, importance, urgency, customInterval = null) {
             const id = Date.now() + Math.random();
             const color = generatePlanetColor();
-            const size = mapImportanceToSize(importance);
+            // Store importance as abstract 1-10, calculate pixels during render
             const speed = mapUrgencyToSpeed(urgency);
             const interval = customInterval !== null ? customInterval : calculateDefaultInterval(urgency, speed);
             const orbitPath = generateOrbitPath();
@@ -704,32 +752,27 @@
                 urgency: parseInt(urgency),
                 interval: parseFloat(interval),
                 color,
-                size,
                 speed,
                 orbitPath,
-                phase: 'foreground', // 'foreground' or 'background'
-                direction: 1, // 1 for right, -1 for left
-                progress: 0, // 0 to 1
+                phase: 'foreground', 
+                direction: 1, 
+                progress: 0, 
                 waitTime: 0,
                 hovering: false
             };
             
             planets.push(planet);
-            console.log('Planet created:', planet);
             saveToLocalStorage();
             updatePlanetList();
             return planet;
         }
 
         function calculateDefaultInterval(urgency, speed) {
-            // Simple stepped intervals based on urgency
-            // High urgency (9-10) = short interval (1s) - frequent reminders
-            // Low urgency (1-2) = long interval (5s) - less frequent
             if (urgency >= 9) return 1;
             if (urgency >= 7) return 2;
             if (urgency >= 5) return 3;
             if (urgency >= 3) return 4;
-            return 5; // urgency 1-2
+            return 5;
         }
 
         function deletePlanet(id) {
@@ -745,38 +788,16 @@
         }
 
         function updatePlanet(id, name, importance, urgency, customInterval = null) {
-            console.log('updatePlanet called with:', { id, name, importance, urgency, customInterval });
             const planet = planets.find(p => p.id === id);
             if (planet) {
-                console.log('Planet before update:', { 
-                    name: planet.name, 
-                    importance: planet.importance, 
-                    urgency: planet.urgency,
-                    size: planet.size,
-                    speed: planet.speed,
-                    interval: planet.interval
-                });
-                
                 planet.name = name;
                 planet.importance = parseInt(importance);
                 planet.urgency = parseInt(urgency);
-                planet.size = mapImportanceToSize(importance);
                 planet.speed = mapUrgencyToSpeed(urgency);
                 planet.interval = customInterval !== null ? parseFloat(customInterval) : calculateDefaultInterval(urgency, planet.speed);
                 
-                console.log('Planet after update:', { 
-                    name: planet.name, 
-                    importance: planet.importance, 
-                    urgency: planet.urgency,
-                    size: planet.size,
-                    speed: planet.speed,
-                    interval: planet.interval
-                });
-                
                 saveToLocalStorage();
                 updatePlanetList();
-            } else {
-                console.error('Planet not found with id:', id);
             }
         }
 
@@ -789,38 +810,34 @@
             return colors[Math.floor(Math.random() * colors.length)];
         }
 
-        function mapImportanceToSize(importance) {
-            // 1 = smallest (30px), 10 = largest (400px)
-            return CONFIG.MIN_SIZE + (importance - 1) * (CONFIG.MAX_SIZE - CONFIG.MIN_SIZE) / 9;
+        // Calculate size dynamically based on current screen dimensions
+        function getPlanetSize(importance) {
+            // Map importance 1-10 to a percentage of screen size
+            const minPx = screenMinDim * CONFIG.MIN_SIZE_BASE;
+            const maxPx = screenMinDim * CONFIG.MAX_SIZE_BASE;
+            return minPx + (importance - 1) * (maxPx - minPx) / 9;
         }
 
         function mapUrgencyToSpeed(urgency) {
-            // HIGH urgency (10) = SLOW (60 seconds) - lingers to remind you
-            // LOW urgency (1) = FAST (1 second) - quick whiz-by
-            const minTime = 1; // seconds (for urgency 1)
-            const maxTime = 60; // seconds (for urgency 10)
+            const minTime = 1; 
+            const maxTime = 60; 
             const time = minTime + (urgency - 1) * (maxTime - minTime) / 9;
             return time;
         }
 
         function generateOrbitPath() {
-            // Generate a unique orbit path with vertical position and curve intensity
             return {
                 yCenter: Math.random() * 0.6 + 0.2, // 0.2 to 0.8 of canvas height
-                curvature: Math.random() * 0.15 + 0.05, // 0.05 to 0.2
-                curveDirection: Math.random() > 0.5 ? 1 : -1 // up or down
+                curvature: Math.random() * 0.15 + 0.05, 
+                curveDirection: Math.random() > 0.5 ? 1 : -1 
             };
         }
 
         function getTextColor(bgColor) {
-            // Convert hex to RGB
             const r = parseInt(bgColor.slice(1, 3), 16);
             const g = parseInt(bgColor.slice(3, 5), 16);
             const b = parseInt(bgColor.slice(5, 7), 16);
-            
-            // Calculate luminance
             const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-            
             return luminance > 0.5 ? '#000000' : '#FFFFFF';
         }
 
@@ -831,23 +848,17 @@
                 return;
             }
             
-            const screenWidth = canvas.width;
-            const crossTime = planet.speed * 60; // Convert to frames (assuming 60fps)
             const progressIncrement = (deltaTime / 1000) / planet.speed;
-            
             planet.progress += progressIncrement;
             
             if (planet.progress >= 1) {
-                // Switch phase and direction
                 if (planet.phase === 'foreground') {
                     planet.phase = 'background';
                     planet.direction *= -1;
-                    // Wait time between foreground and background using custom interval
-                    planet.waitTime = planet.interval * 1000; // Convert seconds to ms
+                    planet.waitTime = planet.interval * 1000;
                 } else {
                     planet.phase = 'foreground';
                     planet.direction *= -1;
-                    // Wait time between background and foreground using custom interval
                     planet.waitTime = planet.interval * 1000;
                 }
                 planet.progress = 0;
@@ -855,48 +866,38 @@
         }
 
         function getPlanetPosition(planet) {
-            const screenWidth = canvas.width;
-            const screenHeight = canvas.height;
+            // Calculate dynamic size for this frame
+            const currentSize = getPlanetSize(planet.importance);
             
-            let x, y, size, opacity, speed;
+            let x, y, size, opacity;
             
             if (planet.phase === 'foreground') {
-                // Foreground: full size, full opacity, normal speed
-                size = planet.size;
+                size = currentSize;
                 opacity = 1;
-                speed = 1;
                 
                 if (planet.direction === 1) {
-                    // Moving right
-                    x = -size + (screenWidth + size * 2) * planet.progress;
+                    x = -size + (logicalWidth + size * 2) * planet.progress;
                 } else {
-                    // Moving left
-                    x = screenWidth + size - (screenWidth + size * 2) * planet.progress;
+                    x = logicalWidth + size - (logicalWidth + size * 2) * planet.progress;
                 }
                 
-                // Curve upward or downward in the center
                 const curveProgress = Math.sin(planet.progress * Math.PI);
-                y = screenHeight * planet.orbitPath.yCenter + 
-                    (curveProgress * screenHeight * planet.orbitPath.curvature * planet.orbitPath.curveDirection);
+                y = logicalHeight * planet.orbitPath.yCenter + 
+                    (curveProgress * logicalHeight * planet.orbitPath.curvature * planet.orbitPath.curveDirection);
                 
             } else {
-                // Background: smaller, darker, slower
-                size = planet.size * CONFIG.BACKGROUND_SCALE;
+                size = currentSize * CONFIG.BACKGROUND_SCALE;
                 opacity = CONFIG.BACKGROUND_OPACITY;
-                speed = CONFIG.BACKGROUND_SPEED_MULTIPLIER;
                 
                 if (planet.direction === 1) {
-                    // Moving right
-                    x = -size + (screenWidth + size * 2) * planet.progress;
+                    x = -size + (logicalWidth + size * 2) * planet.progress;
                 } else {
-                    // Moving left
-                    x = screenWidth + size - (screenWidth + size * 2) * planet.progress;
+                    x = logicalWidth + size - (logicalWidth + size * 2) * planet.progress;
                 }
                 
-                // Curve opposite direction in background
                 const curveProgress = Math.sin(planet.progress * Math.PI);
-                y = screenHeight * planet.orbitPath.yCenter + 
-                    (curveProgress * screenHeight * planet.orbitPath.curvature * -planet.orbitPath.curveDirection);
+                y = logicalHeight * planet.orbitPath.yCenter + 
+                    (curveProgress * logicalHeight * planet.orbitPath.curvature * -planet.orbitPath.curveDirection);
             }
             
             return { x, y, size, opacity };
@@ -904,30 +905,30 @@
 
         // ==================== RENDERING ====================
         function animate() {
-            const deltaTime = 16.67; // Approximate 60fps
+            const deltaTime = 16.67; 
             
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(0, 0, logicalWidth, logicalHeight);
             
-            // Draw space background
             drawSpace();
             
-            // Update and sort planets by layer
             planets.forEach(planet => updatePlanetPhysics(planet, deltaTime));
             
             const backgroundPlanets = planets.filter(p => p.phase === 'background');
             const foregroundPlanets = planets.filter(p => p.phase === 'foreground');
             
-            // Draw background planets first
             backgroundPlanets.forEach(planet => drawPlanet(planet));
             
-            // Draw foreground planets (sorted by size, bigger on top if overlapping)
-            foregroundPlanets.sort((a, b) => a.size - b.size).forEach(planet => drawPlanet(planet));
+            // Draw foreground planets (sorted by size dynamically)
+            foregroundPlanets
+                .sort((a, b) => getPlanetSize(a.importance) - getPlanetSize(b.importance))
+                .forEach(planet => drawPlanet(planet));
             
-            // Draw active info panel if exists
             if (activePlanetInfo) {
                 const planet = planets.find(p => p.id === activePlanetInfo.id);
                 if (planet) {
                     drawInfoPanel(planet);
+                } else {
+                    activePlanetInfo = null; // Clean up if planet deleted
                 }
             }
             
@@ -935,14 +936,12 @@
         }
 
         function drawSpace() {
-            // Black background
             ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillRect(0, 0, logicalWidth, logicalHeight);
             
-            // Draw twinkling stars
             stars.forEach(star => {
                 star.twinkle += star.twinkleSpeed;
-                const brightness = (Math.sin(star.twinkle) + 1) / 2 * 0.5 + 0.5; // 0.5 to 1
+                const brightness = (Math.sin(star.twinkle) + 1) / 2 * 0.5 + 0.5;
                 ctx.fillStyle = `rgba(255, 255, 255, ${brightness})`;
                 ctx.beginPath();
                 ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
@@ -953,25 +952,21 @@
         function drawPlanet(planet) {
             const pos = getPlanetPosition(planet);
             
-            // Apply opacity for background
             ctx.globalAlpha = pos.opacity;
             
-            // Check if this is a background planet and if any foreground planets are casting shadows on it
+            // Shadows for background planets
             if (planet.phase === 'background') {
                 const foregroundPlanets = planets.filter(p => p.phase === 'foreground');
                 foregroundPlanets.forEach(fgPlanet => {
                     const fgPos = getPlanetPosition(fgPlanet);
                     const distance = Math.sqrt((fgPos.x - pos.x) ** 2 + (fgPos.y - pos.y) ** 2);
                     
-                    // If foreground planet is close enough to cast a shadow
                     if (distance < fgPos.size / 2 + pos.size / 2 + 40) {
-                        // Calculate shadow offset based on relative position
                         const angle = Math.atan2(pos.y - fgPos.y, pos.x - fgPos.x);
-                        const shadowDistance = 8; // How far the shadow is offset
+                        const shadowDistance = 8;
                         const shadowX = pos.x + Math.cos(angle) * shadowDistance;
                         const shadowY = pos.y + Math.sin(angle) * shadowDistance;
                         
-                        // Draw shadow
                         const shadowGradient = ctx.createRadialGradient(
                             shadowX, shadowY, 0,
                             shadowX, shadowY, pos.size / 2 + 10
@@ -988,31 +983,33 @@
                 });
             }
             
-            // Glow effect on hover
+            // Glow effect
             if (planet.hovering && planet.phase === 'foreground') {
-                const gradient = ctx.createRadialGradient(pos.x, pos.y, pos.size / 2, pos.x, pos.y, pos.size / 2 + CONFIG.GLOW_RADIUS);
+                const glowSize = screenMinDim * CONFIG.GLOW_RADIUS_PCT;
+                const gradient = ctx.createRadialGradient(pos.x, pos.y, pos.size / 2, pos.x, pos.y, pos.size / 2 + glowSize);
                 gradient.addColorStop(0, planet.color + '00');
                 gradient.addColorStop(0.5, planet.color + '40');
                 gradient.addColorStop(1, planet.color + '00');
                 ctx.fillStyle = gradient;
                 ctx.beginPath();
-                ctx.arc(pos.x, pos.y, pos.size / 2 + CONFIG.GLOW_RADIUS, 0, Math.PI * 2);
+                ctx.arc(pos.x, pos.y, pos.size / 2 + glowSize, 0, Math.PI * 2);
                 ctx.fill();
             }
             
-            // Draw planet circle
+            // Planet Body
             ctx.fillStyle = planet.color;
             ctx.beginPath();
             ctx.arc(pos.x, pos.y, pos.size / 2, 0, Math.PI * 2);
             ctx.fill();
             
-            // Draw planet name
+            // Text rendering with scale-aware fonts
             ctx.fillStyle = getTextColor(planet.color);
-            ctx.font = `${Math.max(pos.size / 8, 12)}px sans-serif`;
+            // Dynamic font size based on planet size
+            const fontSize = Math.max(pos.size / 8, 12); 
+            ctx.font = `${fontSize}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
-            // Wrap text to fit planet
             const maxWidth = pos.size * 0.8;
             const words = planet.name.split(' ');
             let lines = [];
@@ -1030,8 +1027,7 @@
             }
             lines.push(currentLine);
             
-            // Draw wrapped text
-            const lineHeight = Math.max(pos.size / 8, 12) * 1.2;
+            const lineHeight = fontSize * 1.2;
             const startY = pos.y - (lines.length - 1) * lineHeight / 2;
             lines.forEach((line, i) => {
                 ctx.fillText(line, pos.x, startY + i * lineHeight);
@@ -1043,20 +1039,25 @@
         function drawInfoPanel(planet) {
             const pos = getPlanetPosition(planet);
             
-            // Position panel to the right of planet, or left if too close to edge
-            const panelWidth = 220;
+            // Adjust panel size for smaller screens
+            const isSmallScreen = logicalWidth < 500;
+            const panelWidth = isSmallScreen ? 200 : 220;
             const panelHeight = 150;
+            
             let panelX = pos.x + pos.size / 2 + 20;
             let panelY = pos.y - panelHeight / 2;
             
-            // Adjust if off screen
-            if (panelX + panelWidth > canvas.width) {
+            // Intelligent panel positioning
+            if (panelX + panelWidth > logicalWidth) {
+                // If off right side, move to left
                 panelX = pos.x - pos.size / 2 - panelWidth - 20;
             }
-            if (panelY < 0) panelY = 10;
-            if (panelY + panelHeight > canvas.height) panelY = canvas.height - panelHeight - 10;
+            // Ensure on screen vertically
+            if (panelY < 10) panelY = 10;
+            if (panelY + panelHeight > logicalHeight - 10) panelY = logicalHeight - panelHeight - 10;
+            // Ensure on screen horizontally
+            if (panelX < 10) panelX = 10;
             
-            // Store panel bounds for click detection
             activePlanetInfo.panelBounds = {
                 x: panelX,
                 y: panelY,
@@ -1064,7 +1065,7 @@
                 height: panelHeight
             };
             
-            // Draw panel background
+            // Background
             ctx.fillStyle = 'rgba(20, 20, 30, 0.95)';
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
             ctx.lineWidth = 1;
@@ -1072,12 +1073,20 @@
             ctx.fill();
             ctx.stroke();
             
-            // Draw content
+            // Text
             ctx.fillStyle = '#ffffff';
             ctx.font = '16px sans-serif';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'top';
-            ctx.fillText(planet.name, panelX + 15, panelY + 15);
+            
+            // Truncate name if too long for panel
+            let displayName = planet.name;
+            if (ctx.measureText(displayName).width > panelWidth - 30) {
+                 // Simple truncation for now
+                 displayName = displayName.substring(0, 15) + '...';
+            }
+            
+            ctx.fillText(displayName, panelX + 15, panelY + 15);
             
             ctx.font = '12px sans-serif';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
@@ -1085,16 +1094,18 @@
             ctx.fillText(`Urgency: ${planet.urgency}`, panelX + 15, panelY + 65);
             ctx.fillText(`Interval: ${planet.interval ? planet.interval.toFixed(1) + 's' : 'Auto'}`, panelX + 125, panelY + 65);
             
-            // Draw buttons
+            // Buttons
             const btnY = panelY + panelHeight - 40;
             const btnHeight = 28;
-            const btnPadding = 8;
+            const availableWidth = panelWidth - 30; // 15px padding each side
+            const gap = 8;
+            const btnWidth = (availableWidth - (gap * 2)) / 3;
             
-            // Edit button
+            // Edit
             activePlanetInfo.editBtn = {
                 x: panelX + 15,
                 y: btnY,
-                width: 60,
+                width: btnWidth,
                 height: btnHeight
             };
             ctx.fillStyle = '#667eea';
@@ -1105,13 +1116,13 @@
             ctx.font = '12px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('Edit', activePlanetInfo.editBtn.x + 30, activePlanetInfo.editBtn.y + 14);
+            ctx.fillText('Edit', activePlanetInfo.editBtn.x + btnWidth/2, activePlanetInfo.editBtn.y + btnHeight/2);
             
-            // Delete button
+            // Delete
             activePlanetInfo.deleteBtn = {
-                x: panelX + 15 + 60 + btnPadding,
+                x: panelX + 15 + btnWidth + gap,
                 y: btnY,
-                width: 60,
+                width: btnWidth,
                 height: btnHeight
             };
             ctx.fillStyle = 'rgba(220, 38, 38, 0.8)';
@@ -1119,13 +1130,13 @@
                       activePlanetInfo.deleteBtn.width, activePlanetInfo.deleteBtn.height, 4);
             ctx.fill();
             ctx.fillStyle = '#ffffff';
-            ctx.fillText('Delete', activePlanetInfo.deleteBtn.x + 30, activePlanetInfo.deleteBtn.y + 14);
+            ctx.fillText('Del', activePlanetInfo.deleteBtn.x + btnWidth/2, activePlanetInfo.deleteBtn.y + btnHeight/2);
             
-            // Cancel button
+            // Cancel
             activePlanetInfo.cancelBtn = {
-                x: panelX + 15 + 120 + btnPadding * 2,
+                x: panelX + 15 + (btnWidth + gap) * 2,
                 y: btnY,
-                width: 60,
+                width: btnWidth,
                 height: btnHeight
             };
             ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
@@ -1133,7 +1144,7 @@
                       activePlanetInfo.cancelBtn.width, activePlanetInfo.cancelBtn.height, 4);
             ctx.fill();
             ctx.fillStyle = '#ffffff';
-            ctx.fillText('Cancel', activePlanetInfo.cancelBtn.x + 30, activePlanetInfo.cancelBtn.y + 14);
+            ctx.fillText('X', activePlanetInfo.cancelBtn.x + btnWidth/2, activePlanetInfo.cancelBtn.y + btnHeight/2);
         }
 
         function roundRect(ctx, x, y, width, height, radius) {
@@ -1151,12 +1162,27 @@
         }
 
         // ==================== UI INTERACTIONS ====================
+        
+        // Touch support wrapper
+        function handleTouchStart(e) {
+            // Prevent default only if not hitting UI elements that need it
+            // but we need to pass coordinates to standard handler
+            if (e.touches.length > 0) {
+                const touch = e.touches[0];
+                const fakeEvent = {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY,
+                    preventDefault: () => e.preventDefault()
+                };
+                handleCanvasClick(fakeEvent);
+            }
+        }
+
         function handleCanvasClick(e) {
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
-            // Check if clicked on info panel buttons first (before closing side panel)
             if (activePlanetInfo) {
                 if (isPointInRect(x, y, activePlanetInfo.editBtn)) {
                     openEditModal(activePlanetInfo.id);
@@ -1181,21 +1207,18 @@
                     return;
                 }
                 if (isPointInRect(x, y, activePlanetInfo.panelBounds)) {
-                    return; // Clicked inside panel but not on buttons
+                    return; 
                 }
             }
             
-            // Close side panel only if clicked on empty canvas area
             const sidePanel = document.getElementById('sidePanel');
             if (sidePanel.classList.contains('open')) {
-                // Only close if we didn't click on a planet or info panel
                 const clickedPlanet = getPlanetAtPoint(x, y);
                 if (!clickedPlanet) {
                     toggleSidePanel();
                 }
             }
             
-            // Check if clicked on a planet
             const clickedPlanet = getPlanetAtPoint(x, y);
             if (clickedPlanet) {
                 activePlanetInfo = { id: clickedPlanet.id };
@@ -1219,9 +1242,9 @@
         }
 
         function getPlanetAtPoint(x, y) {
-            // Check foreground planets first (reverse order for top layer first)
             const foreground = planets.filter(p => p.phase === 'foreground')
-                .sort((a, b) => b.size - a.size);
+                // Sort by current size for hit detection priority
+                .sort((a, b) => getPlanetSize(b.importance) - getPlanetSize(a.importance));
             
             for (const planet of foreground) {
                 const pos = getPlanetPosition(planet);
@@ -1260,7 +1283,6 @@
             document.getElementById('planetInterval').value = planet.interval || '';
             document.getElementById('modal').classList.add('show');
             
-            // Open side panel and highlight
             selectedPlanetId = planetId;
             document.getElementById('sidePanel').classList.add('open');
             const toggle = document.getElementById('sidePanelToggle');
@@ -1275,7 +1297,6 @@
         }
 
         function handleFormSubmit(e) {
-            console.log('handleFormSubmit called');
             if (e && e.preventDefault) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1287,31 +1308,16 @@
             const intervalInput = document.getElementById('planetInterval').value.trim();
             const customInterval = intervalInput ? parseFloat(intervalInput) : null;
             
-            console.log('Form values:', { name, importance, urgency, customInterval });
-            
-            if (!name) {
-                alert('Please enter an idea name');
-                return false;
-            }
-            if (!importance) {
-                alert('Please select importance');
-                return false;
-            }
-            if (!urgency) {
-                alert('Please select urgency');
+            if (!name || !importance || !urgency) {
                 return false;
             }
             
             if (editingPlanetId) {
-                console.log('Updating planet:', editingPlanetId);
                 updatePlanet(editingPlanetId, name, importance, urgency, customInterval);
             } else {
-                console.log('Creating new planet...');
-                const newPlanet = createPlanet(name, importance, urgency, customInterval);
-                console.log('Planet created:', newPlanet);
+                createPlanet(name, importance, urgency, customInterval);
             }
             
-            console.log('Total planets now:', planets.length);
             closeModal();
             return false;
         }
@@ -1353,15 +1359,15 @@
                     </div>
                     <div class="planet-item-stats">
                         <div class="planet-item-stat">
-                            <span class="planet-item-stat-label">Importance</span>
+                            <span class="planet-item-stat-label">Imp</span>
                             <span class="planet-item-stat-value">${planet.importance}</span>
                         </div>
                         <div class="planet-item-stat">
-                            <span class="planet-item-stat-label">Urgency</span>
+                            <span class="planet-item-stat-label">Urg</span>
                             <span class="planet-item-stat-value">${planet.urgency}</span>
                         </div>
                         <div class="planet-item-stat">
-                            <span class="planet-item-stat-label">Interval</span>
+                            <span class="planet-item-stat-label">Int</span>
                             <span class="planet-item-stat-value">${planet.interval ? planet.interval.toFixed(1) + 's' : 'Auto'}</span>
                         </div>
                     </div>
@@ -1414,18 +1420,16 @@
                     planets = data.planets.map(p => {
                         const speed = mapUrgencyToSpeed(p.urgency);
                         const interval = p.interval !== undefined ? p.interval : calculateDefaultInterval(p.urgency, speed);
-                        const planet = {
+                        return {
                             ...p,
-                            size: mapImportanceToSize(p.importance),
                             speed: speed,
                             interval: interval,
                             phase: 'foreground',
                             direction: 1,
-                            progress: Math.random(), // Random start position
+                            progress: Math.random(),
                             waitTime: 0,
                             hovering: false
                         };
-                        return planet;
                     });
                     updatePlanetList();
                 } catch (e) {
@@ -1474,7 +1478,6 @@
                             const interval = p.interval !== undefined ? p.interval : calculateDefaultInterval(p.urgency, speed);
                             return {
                                 ...p,
-                                size: mapImportanceToSize(p.importance),
                                 speed: speed,
                                 interval: interval,
                                 phase: 'foreground',
@@ -1489,7 +1492,6 @@
                         alert('Profile loaded successfully!');
                     } catch (err) {
                         alert('Failed to load profile. Invalid file format.');
-                        console.error(err);
                     }
                 };
                 reader.readAsText(file);
@@ -1497,7 +1499,8 @@
             input.click();
         }
 
-        // ==================== SUPABASE INTEGRATION (BLUEPRINT) ====================
+
+         // ==================== SUPABASE INTEGRATION (BLUEPRINT) ====================
         /*
         // Uncomment and configure when ready to use Supabase
         
