@@ -179,9 +179,9 @@ function generateStars() {
 }
 
 // ==================== PLANET MANAGEMENT ====================
-function createPlanet(name, importance, urgency, customInterval = null) {
+function createPlanet(name, importance, urgency, customInterval = null, customColor = null) {
     const id = Date.now() + Math.random();
-    const color = generatePlanetColor();
+    const color = customColor || generatePlanetColor();
     // Store importance as abstract 1-10, calculate pixels during render
     const speed = mapUrgencyToSpeed(urgency);
     const interval = customInterval !== null ? customInterval : calculateDefaultInterval(urgency, speed);
@@ -229,7 +229,7 @@ function deletePlanet(id) {
     updatePlanetList();
 }
 
-function updatePlanet(id, name, importance, urgency, customInterval = null) {
+function updatePlanet(id, name, importance, urgency, customInterval = null, customColor = null) {
     const planet = planets.find(p => p.id === id);
     if (planet) {
         planet.name = name;
@@ -237,6 +237,9 @@ function updatePlanet(id, name, importance, urgency, customInterval = null) {
         planet.urgency = parseInt(urgency);
         planet.speed = mapUrgencyToSpeed(urgency);
         planet.interval = customInterval !== null ? parseFloat(customInterval) : calculateDefaultInterval(urgency, planet.speed);
+        if (customColor) {
+            planet.color = customColor;
+        }
 
         saveToLocalStorage();
         updatePlanetList();
@@ -723,6 +726,7 @@ function openEditModal(planetId) {
     document.getElementById('planetImportance').value = planet.importance;
     document.getElementById('planetUrgency').value = planet.urgency;
     document.getElementById('planetInterval').value = planet.interval || '';
+    document.getElementById('planetColor').value = planet.color || '#FFFFFF';
     document.getElementById('modal').classList.add('show');
 
     selectedPlanetId = planetId;
@@ -749,15 +753,17 @@ function handleFormSubmit(e) {
     const urgency = document.getElementById('planetUrgency').value;
     const intervalInput = document.getElementById('planetInterval').value.trim();
     const customInterval = intervalInput ? parseFloat(intervalInput) : null;
+    const colorInput = document.getElementById('planetColor').value.trim();
+    const customColor = colorInput ? colorInput : null;
 
     if (!name || !importance || !urgency) {
         return false;
     }
 
     if (editingPlanetId) {
-        updatePlanet(editingPlanetId, name, importance, urgency, customInterval);
+        updatePlanet(editingPlanetId, name, importance, urgency, customInterval, customColor);
     } else {
-        createPlanet(name, importance, urgency, customInterval);
+        createPlanet(name, importance, urgency, customInterval, customColor);
     }
 
     closeModal();
