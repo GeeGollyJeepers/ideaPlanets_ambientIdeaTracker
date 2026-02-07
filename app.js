@@ -116,6 +116,14 @@ function init() {
     // Load settings (if they exist)
     loadSettings();
 
+    // Global Adjustment Button Event Listeners
+    document.getElementById('impUpBtn').addEventListener('click', () => adjustAllImportance(1));
+    document.getElementById('impDownBtn').addEventListener('click', () => adjustAllImportance(-1));
+    document.getElementById('urgUpBtn').addEventListener('click', () => adjustAllUrgency(1));
+    document.getElementById('urgDownBtn').addEventListener('click', () => adjustAllUrgency(-1));
+    document.getElementById('intUpBtn').addEventListener('click', () => adjustAllInterval(1));
+    document.getElementById('intDownBtn').addEventListener('click', () => adjustAllInterval(-1));
+
     canvas.addEventListener('click', handleCanvasClick);
     canvas.addEventListener('mousemove', handleCanvasHover);
 
@@ -915,6 +923,36 @@ function loadSettings() {
             console.error("Error loading settings", e);
         }
     }
+}
+
+// ==================== GLOBAL ADJUSTMENTS ====================
+
+function adjustAllImportance(delta) {
+    if (planets.length === 0) return;
+    planets.forEach(planet => {
+        planet.importance = Math.max(1, Math.min(10, planet.importance + delta));
+    });
+    saveToLocalStorage();
+    updatePlanetList();
+}
+
+function adjustAllUrgency(delta) {
+    if (planets.length === 0) return;
+    planets.forEach(planet => {
+        planet.urgency = Math.max(1, Math.min(10, planet.urgency + delta));
+        planet.speed = mapUrgencyToSpeed(planet.urgency);
+    });
+    saveToLocalStorage();
+    updatePlanetList();
+}
+
+function adjustAllInterval(delta) {
+    if (planets.length === 0) return;
+    planets.forEach(planet => {
+        planet.interval = Math.max(1, Math.min(60, planet.interval + delta));
+    });
+    saveToLocalStorage();
+    updatePlanetList();
 }
 
 function saveProfile() {

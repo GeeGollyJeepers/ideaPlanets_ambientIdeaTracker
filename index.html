@@ -41,6 +41,30 @@ It also has a settings panel that allows users to configure the app.
                 <input type="range" id="maxSizeInput" min="20" max="150" value="85" step="1">
             </div>
         </div>
+        <div class="panel-adjustments">
+            <div class="setting-label">Global Adjustments</div>
+            <div class="adjustment-row">
+                <span class="adjustment-label">Importance</span>
+                <div class="adjustment-buttons">
+                    <button class="adjustment-btn" id="impDownBtn" title="Decrease all importance">▼</button>
+                    <button class="adjustment-btn" id="impUpBtn" title="Increase all importance">▲</button>
+                </div>
+            </div>
+            <div class="adjustment-row">
+                <span class="adjustment-label">Urgency</span>
+                <div class="adjustment-buttons">
+                    <button class="adjustment-btn" id="urgDownBtn" title="Decrease all urgency">▼</button>
+                    <button class="adjustment-btn" id="urgUpBtn" title="Increase all urgency">▲</button>
+                </div>
+            </div>
+            <div class="adjustment-row">
+                <span class="adjustment-label">Interval</span>
+                <div class="adjustment-buttons">
+                    <button class="adjustment-btn" id="intDownBtn" title="Decrease all intervals">▼</button>
+                    <button class="adjustment-btn" id="intUpBtn" title="Increase all intervals">▲</button>
+                </div>
+            </div>
+        </div>
         <div class="panel-content" id="planetList"></div>
         <div class="panel-controls">
             <button class="control-btn" id="saveProfileBtn">💾 Save Profile</button>
