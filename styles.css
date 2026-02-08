@@ -292,20 +292,213 @@ body {
     margin-bottom: 2px;
 }
 
-.delete-btn {
-    background: rgba(220, 38, 38, 0.8);
-    border: none;
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 11px;
-    margin-top: 8px;
-    transition: background 0.2s;
+/* Inline Edit Controls */
+.planet-item-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
 }
 
-.delete-btn:hover {
+.planet-item-name {
+    font-weight: bold;
+    font-size: 14px;
+    flex: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.2s;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+}
+
+.planet-item-name:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.planet-name-input {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid #667eea;
+    border-radius: 4px;
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    padding: 4px 8px;
+    outline: none;
+}
+
+.planet-item-color {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    flex-shrink: 0;
+}
+
+.planet-item-color:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+}
+
+.planet-delete-btn {
+    background: rgba(220, 38, 38, 0.7);
+    border: none;
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.1s;
+    flex-shrink: 0;
+}
+
+.planet-delete-btn:hover {
     background: rgba(220, 38, 38, 1);
+    transform: scale(1.05);
+}
+
+.planet-delete-btn:active {
+    transform: scale(0.95);
+}
+
+/* Stat Adjuster Controls */
+.planet-item-controls {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.stat-adjuster {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+}
+
+.stat-label {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.adjuster-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 6px;
+    padding: 2px;
+}
+
+.adjuster-btn {
+    width: 28px;
+    height: 32px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(102, 126, 234, 0.6);
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Touch-friendly: still tappable at 28px wide */
+    touch-action: manipulation;
+}
+
+.adjuster-btn:hover {
+    background: rgba(102, 126, 234, 0.9);
+}
+
+.adjuster-btn:active {
+    transform: scale(0.9);
+    background: rgba(102, 126, 234, 1);
+}
+
+.stat-value {
+    font-size: 13px;
+    font-weight: bold;
+    color: white;
+    min-width: 24px;
+    text-align: center;
+}
+
+/* Interval Cycle Button */
+.interval-adjuster {
+    flex: 0 0 auto;
+}
+
+.interval-cycle-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(102, 126, 234, 0.5);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.1s;
+    min-width: 48px;
+    touch-action: manipulation;
+}
+
+.interval-cycle-btn:hover {
+    background: rgba(102, 126, 234, 0.3);
+    border-color: rgba(102, 126, 234, 0.8);
+}
+
+.interval-cycle-btn:active {
+    transform: scale(0.95);
+    background: rgba(102, 126, 234, 0.5);
+}
+
+.interval-cycle-btn .stat-label {
+    margin-bottom: 2px;
+}
+
+.interval-cycle-btn .stat-value {
+    font-size: 14px;
+    min-width: auto;
+}
+
+/* Mobile adjustments for inline controls */
+@media (max-width: 380px) {
+    .adjuster-btn {
+        width: 24px;
+        height: 28px;
+        font-size: 14px;
+    }
+
+    .stat-value {
+        font-size: 12px;
+        min-width: 20px;
+    }
+
+    .planet-item-controls {
+        gap: 4px;
+    }
+
+    .adjuster-group {
+        gap: 1px;
+    }
+
+    .interval-cycle-btn {
+        padding: 4px 8px;
+        min-width: 42px;
+    }
 }
 
 /* Modal */

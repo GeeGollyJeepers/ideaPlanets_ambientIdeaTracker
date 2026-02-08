@@ -809,37 +809,55 @@ function updatePlanetList() {
             item.classList.add('selected');
         }
 
+        // New two-row layout with inline controls
         item.innerHTML = `
             <div class="planet-item-header">
-                <div class="planet-item-name">${planet.name}</div>
-                <div class="planet-item-color" style="background: ${planet.color}"></div>
+                <div class="planet-item-name" data-planet-id="${planet.id}">${planet.name}</div>
+                <div class="planet-item-color" style="background: ${planet.color}" data-planet-id="${planet.id}" title="Change color"></div>
+                <button class="planet-delete-btn" data-id="${planet.id}" title="Delete planet">🗑️</button>
             </div>
-            <div class="planet-item-stats">
-                <div class="planet-item-stat">
-                    <span class="planet-item-stat-label">Imp</span>
-                    <span class="planet-item-stat-value">${planet.importance}</span>
+            <div class="planet-item-controls">
+                <div class="stat-adjuster">
+                    <span class="stat-label">Imp</span>
+                    <div class="adjuster-group">
+                        <button class="adjuster-btn adjuster-down" data-stat="importance" data-id="${planet.id}">−</button>
+                        <span class="stat-value">${planet.importance}</span>
+                        <button class="adjuster-btn adjuster-up" data-stat="importance" data-id="${planet.id}">+</button>
+                    </div>
                 </div>
-                <div class="planet-item-stat">
-                    <span class="planet-item-stat-label">Urg</span>
-                    <span class="planet-item-stat-value">${planet.urgency}</span>
+                <div class="stat-adjuster">
+                    <span class="stat-label">Urg</span>
+                    <div class="adjuster-group">
+                        <button class="adjuster-btn adjuster-down" data-stat="urgency" data-id="${planet.id}">−</button>
+                        <span class="stat-value">${planet.urgency}</span>
+                        <button class="adjuster-btn adjuster-up" data-stat="urgency" data-id="${planet.id}">+</button>
+                    </div>
                 </div>
-                <div class="planet-item-stat">
-                    <span class="planet-item-stat-label">Int</span>
-                    <span class="planet-item-stat-value">${planet.interval ? planet.interval.toFixed(1) + 's' : 'Auto'}</span>
+                <div class="stat-adjuster interval-adjuster">
+                    <button class="interval-cycle-btn" data-id="${planet.id}" title="Tap to cycle: 1, 3, 5, 10, 15, 30, 60s">
+                        <span class="stat-label">Int</span>
+                        <span class="stat-value">${Math.round(planet.interval)}s</span>
+                    </button>
                 </div>
             </div>
-            <button class="delete-btn" data-id="${planet.id}">Delete</button>
         `;
 
-        item.addEventListener('click', (e) => {
-            if (!e.target.classList.contains('delete-btn')) {
-                selectedPlanetId = planet.id;
-                updatePlanetList();
-                openEditModal(planet.id);
-            }
+        // Name click to edit
+        const nameEl = item.querySelector('.planet-item-name');
+        nameEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startEditingPlanetName(planet.id, nameEl);
         });
 
-        item.querySelector('.delete-btn').addEventListener('click', (e) => {
+        // Color circle click to open picker
+        const colorEl = item.querySelector('.planet-item-color');
+        colorEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openColorPickerForPlanet(planet.id);
+        });
+
+        // Delete button
+        item.querySelector('.planet-delete-btn').addEventListener('click', (e) => {
             e.stopPropagation();
             showConfirmDialog(
                 `Delete "${planet.name}"?`,
@@ -847,6 +865,43 @@ function updatePlanetList() {
                     deletePlanet(planet.id);
                 }
             );
+        });
+
+        // Adjuster buttons (for Imp and Urg only)
+        item.querySelectorAll('.adjuster-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const stat = btn.dataset.stat;
+                const id = parseFloat(btn.dataset.id);
+                const delta = btn.classList.contains('adjuster-up') ? 1 : -1;
+
+                if (stat === 'importance') {
+                    adjustPlanetImportance(id, delta);
+                } else if (stat === 'urgency') {
+                    adjustPlanetUrgency(id, delta);
+                }
+            });
+        });
+
+        // Interval cycling button
+        const intervalBtn = item.querySelector('.interval-cycle-btn');
+        if (intervalBtn) {
+            intervalBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = parseFloat(intervalBtn.dataset.id);
+                cyclePlanetInterval(id);
+            });
+        }
+
+        // Select planet on general item click (but not on controls)
+        item.addEventListener('click', (e) => {
+            if (!e.target.closest('.planet-item-controls') &&
+                !e.target.classList.contains('planet-delete-btn') &&
+                !e.target.classList.contains('planet-item-name') &&
+                !e.target.classList.contains('planet-item-color')) {
+                selectedPlanetId = planet.id;
+                updatePlanetList();
+            }
         });
 
         listContainer.appendChild(item);
@@ -953,6 +1008,125 @@ function adjustAllInterval(delta) {
     });
     saveToLocalStorage();
     updatePlanetList();
+}
+
+// ==================== INLINE PLANET EDITING ====================
+
+function adjustPlanetImportance(id, delta) {
+    const planet = planets.find(p => p.id === id);
+    if (planet) {
+        planet.importance = Math.max(1, Math.min(10, planet.importance + delta));
+        saveToLocalStorage();
+        updatePlanetList();
+    }
+}
+
+function adjustPlanetUrgency(id, delta) {
+    const planet = planets.find(p => p.id === id);
+    if (planet) {
+        planet.urgency = Math.max(1, Math.min(10, planet.urgency + delta));
+        planet.speed = mapUrgencyToSpeed(planet.urgency);
+        saveToLocalStorage();
+        updatePlanetList();
+    }
+}
+
+function adjustPlanetInterval(id, delta) {
+    // Legacy function kept for global adjustments
+    const planet = planets.find(p => p.id === id);
+    if (planet) {
+        planet.interval = Math.max(0.5, Math.min(60, planet.interval + delta));
+        saveToLocalStorage();
+        updatePlanetList();
+    }
+}
+
+// Preset interval values for cycling (user's preferred values)
+const INTERVAL_PRESETS = [1, 3, 5, 10, 15, 30, 60];
+
+function cyclePlanetInterval(id) {
+    const planet = planets.find(p => p.id === id);
+    if (!planet) return;
+
+    // Find current interval in presets (or closest match)
+    const currentInterval = planet.interval;
+    let currentIndex = INTERVAL_PRESETS.findIndex(v => v >= currentInterval);
+    if (currentIndex === -1) currentIndex = INTERVAL_PRESETS.length - 1;
+
+    // Cycle to next value (wrap around)
+    const nextIndex = (currentIndex + 1) % INTERVAL_PRESETS.length;
+    planet.interval = INTERVAL_PRESETS[nextIndex];
+
+    saveToLocalStorage();
+    updatePlanetList();
+}
+
+function startEditingPlanetName(id, nameElement) {
+    const planet = planets.find(p => p.id === id);
+    if (!planet) return;
+
+    const currentName = planet.name;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'planet-name-input';
+    input.value = currentName;
+    input.maxLength = 50;
+
+    nameElement.innerHTML = '';
+    nameElement.appendChild(input);
+    input.focus();
+    input.select();
+
+    const saveName = () => {
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+            planet.name = newName;
+            saveToLocalStorage();
+        }
+        updatePlanetList();
+    };
+
+    input.addEventListener('blur', saveName);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+        } else if (e.key === 'Escape') {
+            input.value = currentName; // Reset to original
+            input.blur();
+        }
+    });
+}
+
+function openColorPickerForPlanet(id) {
+    const planet = planets.find(p => p.id === id);
+    if (!planet) return;
+
+    let colorPicker = document.getElementById('inlineColorPicker');
+    if (!colorPicker) {
+        colorPicker = document.createElement('input');
+        colorPicker.type = 'color';
+        colorPicker.id = 'inlineColorPicker';
+        colorPicker.style.position = 'absolute';
+        colorPicker.style.opacity = '0';
+        colorPicker.style.pointerEvents = 'none';
+        document.body.appendChild(colorPicker);
+    }
+
+    colorPicker.value = planet.color || '#FFFFFF';
+    colorPicker.dataset.planetId = id;
+
+    colorPicker.onchange = (e) => {
+        const planetId = parseFloat(colorPicker.dataset.planetId);
+        const targetPlanet = planets.find(p => p.id === planetId);
+        if (targetPlanet) {
+            targetPlanet.color = e.target.value;
+            saveToLocalStorage();
+            updatePlanetList();
+        }
+    };
+
+    colorPicker.click();
 }
 
 function saveProfile() {
